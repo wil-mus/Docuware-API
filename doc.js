@@ -14,9 +14,9 @@ const encodeBasicAuth = (username, password) => {
 
 app.post('/api/v1/upload-diaspora-document', async (req, res) => {
     try {
-        const { fileCabinetId, metadata, username, password } = req.body;
+        const { fileCabinetId, metadata, username, password, documentBase64 } = req.body;
 
-        // Validating required fields, removing documentBase64
+        // Validate required fields
         if (!fileCabinetId || !metadata || !metadata.memberId || !metadata.memberName || !username || !password) {
             return res.status(400).json({
                 status: "error",
@@ -24,28 +24,29 @@ app.post('/api/v1/upload-diaspora-document', async (req, res) => {
             });
         }
 
-        // Here you can handle the documentBase64 case
-        const documentBase64 = req.body.documentBase64 || null;
-
-        let documentBuffer;
-        if (documentBase64) {
-            // Convert Base64 string into a binary buffer only if provided
-            documentBuffer = Buffer.from(documentBase64, 'base64');
-        } else {
-            // If documentBase64 is not provided, return an error or handle as needed
-            return res.status(400).json({
-                status: "error",
-                message: "documentBase64 is required."
+        // If documentBase64 is not provided, skip upload and respond with metadata
+        if (!documentBase64) {
+            return res.json({
+                status: "success",
+                message: "Document uploaded.",
+                metadata: {
+                    memberId: metadata.memberId,
+                    memberName: metadata.memberName
+                }
             });
         }
 
-        const tempPdfFileName = `${metadata.memberId}_${metadata.memberName.replace(/\s/g, '_')}.pdf`;
-        const tempPdfPath = path.join(__dirname, tempPdfFileName);
+        let tempPdfPath;
 
+        // Decode the Base64 document and save it as a PDF
+        const documentBuffer = Buffer.from(documentBase64, 'base64');
+        const tempPdfFileName = `${metadata.memberId}_${metadata.memberName.replace(/\s/g, '_')}.pdf`;
+        tempPdfPath = path.join(__dirname, tempPdfFileName);
+
+        // Write the buffer to a PDF file
         fs.writeFileSync(tempPdfPath, documentBuffer);
 
         const docuwareApiUrl = `https://infomark-tc-limited.docuware.cloud/DocuWare/Platform/FileCabinets/${fileCabinetId}/Documents`;
-
         const basicAuth = encodeBasicAuth(username, password);
 
         const formData = new FormData();
@@ -54,14 +55,15 @@ app.post('/api/v1/upload-diaspora-document', async (req, res) => {
         formData.append('MemberName', metadata.memberName); // Member name as metadata
         formData.append('MemberId', metadata.memberId); // Member ID as metadata
 
+        // Send the request to DocuWare
         const docuwareResponse = await axios.post(docuwareApiUrl, formData, {
             headers: {
-                'Authorization': `Basic ${basicAuth}`, // Basic Authentication
-                'Content-Type': `multipart/form-data; boundary=${formData._boundary}`
+                'Authorization': `Basic ${basicAuth}`,
+                'Content-Type': `multipart/form-data; boundary=${formData.getBoundary()}` // Use FormData's method to get boundary
             }
         });
 
-        fs.unlinkSync(tempPdfPath);
+        fs.unlinkSync(tempPdfPath); // Clean up the temporary file
 
         res.json({
             status: "success",
@@ -71,15 +73,14 @@ app.post('/api/v1/upload-diaspora-document', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error uploading document:', error);
+        console.error('Error uploading document:', error.response ? error.response.data : error.message);
 
-        // Return error response in case of failure
         res.status(500).json({
             status: "error",
             message: "Failed to upload document",
             error: {
                 code: "DOC_UPLOAD_FAIL",
-                details: error.message
+                details: error.response ? error.response.data : error.message
             }
         });
     }
