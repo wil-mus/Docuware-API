@@ -14,18 +14,31 @@ const encodeBasicAuth = (username, password) => {
 
 app.post('/api/v1/upload-diaspora-document', async (req, res) => {
     try {
-        const { fileCabinetId, metadata, documentBase64, username, password } = req.body;
+        const { fileCabinetId, metadata, username, password } = req.body;
 
-        // Validating required fields
-        if (!fileCabinetId || !documentBase64 || !metadata || !metadata.memberId || !metadata.memberName || !username || !password) {
+        // Validating required fields, removing documentBase64
+        if (!fileCabinetId || !metadata || !metadata.memberId || !metadata.memberName || !username || !password) {
             return res.status(400).json({
                 status: "error",
-                message: "Invalid request: missing required fields (fileCabinetId, documentBase64, metadata, username, password)."
+                message: "Invalid request: missing required fields (fileCabinetId, metadata, username, password)."
             });
         }
 
-        const documentBuffer = Buffer.from(documentBase64, 'base64');
-        
+        // Here you can handle the documentBase64 case
+        const documentBase64 = req.body.documentBase64 || null;
+
+        let documentBuffer;
+        if (documentBase64) {
+            // Convert Base64 string into a binary buffer only if provided
+            documentBuffer = Buffer.from(documentBase64, 'base64');
+        } else {
+            // If documentBase64 is not provided, return an error or handle as needed
+            return res.status(400).json({
+                status: "error",
+                message: "documentBase64 is required."
+            });
+        }
+
         const tempPdfFileName = `${metadata.memberId}_${metadata.memberName.replace(/\s/g, '_')}.pdf`;
         const tempPdfPath = path.join(__dirname, tempPdfFileName);
 
